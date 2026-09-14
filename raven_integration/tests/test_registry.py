@@ -85,6 +85,44 @@ def get_conditional_provider():
 	}
 
 
+def get_conditional_value_in_provider():
+	"""A provider whose required field applies to more than one choice of a Select.
+
+	The shape LMS's own provider uses (e.g. a `batches` field shown when
+	`enrolled_in` is "Batches" or "Both") — a single `value` cannot express "one of
+	several", so `depends_on` also accepts `value_in`.
+	"""
+	return {
+		"name": "CONDITIONAL_VALUE_IN",
+		"label": "Conditional (value_in)",
+		"rule_types": [
+			{
+				"type": "scoped",
+				"label": "Scoped",
+				"fields": [
+					{
+						"fieldname": "mode",
+						"fieldtype": "Select",
+						"label": "Mode",
+						"options": ["role", "tagged", "both"],
+						"reqd": 1,
+						"default": "role",
+					},
+					{
+						"fieldname": "courses",
+						"fieldtype": "MultiSelect",
+						"label": "Courses",
+						"options": "LMS Course",
+						"reqd": 1,
+						"depends_on": {"field": "mode", "value_in": ["tagged", "both"]},
+					},
+				],
+			}
+		],
+		"evaluate": lambda rule_type, config: set(),
+	}
+
+
 class TestConditionalFields(FrappeTestCase):
 	"""`reqd` is judged against the fields that apply, not every field declared."""
 
@@ -115,6 +153,32 @@ class TestConditionalFields(FrappeTestCase):
 	def test_a_met_condition_still_passes_once_filled(self):
 		with self._patch():
 			registry.validate_rule_config("CONDITIONAL", "scoped", {"mode": "tagged", "courses": ["C1"]})
+
+
+class TestConditionalFieldsValueIn(FrappeTestCase):
+	"""`depends_on.value_in` matches any of several values, not just one."""
+
+	def _patch(self):
+		return patch.object(
+			registry, "_provider_paths", return_value=["raven_integration.tests.test_registry.get_conditional_value_in_provider"]
+		)
+
+	def test_a_field_whose_value_in_condition_is_unmet_is_not_required(self):
+		with self._patch():
+			registry.validate_rule_config("CONDITIONAL_VALUE_IN", "scoped", {"mode": "role"})
+
+	def test_a_field_is_required_for_each_value_named_by_value_in(self):
+		for mode in ("tagged", "both"):
+			with self._patch():
+				with self.assertRaises(frappe.ValidationError) as cm:
+					registry.validate_rule_config("CONDITIONAL_VALUE_IN", "scoped", {"mode": mode})
+			self.assertIn("Courses", str(cm.exception))
+
+	def test_a_met_value_in_condition_still_passes_once_filled(self):
+		with self._patch():
+			registry.validate_rule_config(
+				"CONDITIONAL_VALUE_IN", "scoped", {"mode": "both", "courses": ["C1"]}
+			)
 
 
 class TestRegistry(FrappeTestCase):
@@ -245,6 +309,34 @@ def get_unnamed_field_provider():
 	return _one_rule_type([{"fieldtype": "Select", "label": "Mode", "options": ["role"]}])
 
 
+def get_string_value_in_provider():
+	"""`value_in` given a bare string instead of a list — iterating it would match
+	on individual characters rather than the field's value."""
+	return _one_rule_type(
+		[
+			{"fieldname": "mode", "fieldtype": "Select", "options": ["role"], "default": "role"},
+			{
+				"fieldname": "courses",
+				"fieldtype": "MultiSelect",
+				"depends_on": {"field": "mode", "value_in": "role"},
+			},
+		]
+	)
+
+
+def get_empty_value_in_provider():
+	return _one_rule_type(
+		[
+			{"fieldname": "mode", "fieldtype": "Select", "options": ["role"], "default": "role"},
+			{
+				"fieldname": "courses",
+				"fieldtype": "MultiSelect",
+				"depends_on": {"field": "mode", "value_in": []},
+			},
+		]
+	)
+
+
 class TestDeclarationValidation(FrappeTestCase):
 	"""A rule-type declaration is a schema two sides dereference, so it is checked once.
 
@@ -277,6 +369,25 @@ class TestDeclarationValidation(FrappeTestCase):
 		self.assertIn("fieldname", str(cm.exception))
 
 	def test_a_sound_conditional_declaration_still_loads(self):
-		# The guard above must not be reachable by the shape the LMS provider uses.
+		# The guard above must not be reachable by the single-value shape.
 		with patch.object(registry, "_provider_paths", return_value=[_CONDITIONAL_PATH]):
 			registry.validate_rule_config("CONDITIONAL", "scoped", {"mode": "role"})
+
+	def test_a_sound_value_in_declaration_still_loads(self):
+		# The guard above must not be reachable by the shape the LMS provider uses.
+		with patch.object(
+			registry,
+			"_provider_paths",
+			return_value=["raven_integration.tests.test_registry.get_conditional_value_in_provider"],
+		):
+			registry.validate_rule_config("CONDITIONAL_VALUE_IN", "scoped", {"mode": "role"})
+
+	def test_a_non_list_value_in_is_refused(self):
+		with self.assertRaises(frappe.ValidationError) as cm:
+			self._evaluate_with("raven_integration.tests.test_registry.get_string_value_in_provider")
+		self.assertIn("value_in", str(cm.exception))
+
+	def test_an_empty_value_in_is_refused(self):
+		with self.assertRaises(frappe.ValidationError) as cm:
+			self._evaluate_with("raven_integration.tests.test_registry.get_empty_value_in_provider")
+		self.assertIn("value_in", str(cm.exception))
