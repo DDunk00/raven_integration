@@ -148,7 +148,7 @@ def _validate_rule_types(provider: str, rule_types: list, path: str) -> None:
 					provider,
 					path,
 					_(
-						"declares <b>depends_on</b> as {0} on field <b>{1}</b> of rule type <b>{2}</b>. It must be a dict carrying a <b>field</b> key and a <b>value</b> key; the <code>eval:</code> string form Frappe accepts on a DocField is not supported here."
+						"declares <b>depends_on</b> as {0} on field <b>{1}</b> of rule type <b>{2}</b>. It must be a dict carrying a <b>field</b> key and either a <b>value</b> key or a <b>value_in</b> key; the <code>eval:</code> string form Frappe accepts on a DocField is not supported here."
 					).format(type(dep).__name__, escape_html(f["fieldname"]), escape_html(type_name)),
 				)
 			if dep.get("field") not in fieldnames:
@@ -163,16 +163,30 @@ def _validate_rule_types(provider: str, rule_types: list, path: str) -> None:
 						escape_html(type_name),
 					),
 				)
-			if "value" not in dep:
+			if "value" not in dep and "value_in" not in dep:
 				_throw_declaration(
 					provider,
 					path,
 					_(
-						"declares <b>depends_on</b> with no <b>value</b> on field <b>{0}</b> of rule type <b>{1}</b>. Name the value of <b>{2}</b> that this field applies to."
+						"declares <b>depends_on</b> with no <b>value</b> or <b>value_in</b> on field <b>{0}</b> of rule type <b>{1}</b>. Name the value(s) of <b>{2}</b> that this field applies to."
 					).format(
 						escape_html(f["fieldname"]),
 						escape_html(type_name),
 						escape_html(str(dep.get("field"))),
+					),
+				)
+			if "value_in" in dep and (
+				not isinstance(dep["value_in"], list) or not dep["value_in"]
+			):
+				_throw_declaration(
+					provider,
+					path,
+					_(
+						"declares <b>depends_on.value_in</b> of {0} on field <b>{1}</b> of rule type <b>{2}</b>. It must be a non-empty list of values."
+					).format(
+						escape_html(repr(dep["value_in"])),
+						escape_html(f["fieldname"]),
+						escape_html(type_name),
 					),
 				)
 
@@ -328,7 +342,10 @@ def _applicable_fields(fields: list, cfg: dict) -> list:
 	applicable = []
 	for f in fields:
 		dep = f.get("depends_on")
-		if dep and shown.get(dep.get("field")) != dep.get("value"):
-			continue
+		if dep:
+			current = shown.get(dep.get("field"))
+			satisfied = current in dep["value_in"] if "value_in" in dep else current == dep.get("value")
+			if not satisfied:
+				continue
 		applicable.append(f)
 	return applicable

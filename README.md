@@ -229,9 +229,12 @@ def evaluate(rule_type: str, config: dict) -> set[str]:
 - **`rule_types[].fields`** — the core reads `fieldname`, `reqd`, `label`, `default` and
   `depends_on` from each entry, to enforce required config keys when a rule is saved. Every other key
   (`fieldtype`, `options`, …) is passed through untouched for the consuming app's form renderer.
-- **`rule_types[].fields[].depends_on`** — `{"field": "other_fieldname", "value": "..."}`. The field
-  applies only while `other_fieldname` holds `value`; where it does not, it is not rendered, not
-  checked for `reqd` and not written. The value compared is the one the control *shows*, so a
+- **`rule_types[].fields[].depends_on`** — `{"field": "other_fieldname", "value": "..."}` or
+  `{"field": "other_fieldname", "value_in": ["...", "..."]}`. The field applies only while
+  `other_fieldname` holds `value`, or holds one of `value_in`; where it does not, it is not rendered,
+  not checked for `reqd` and not written. At least one of `value` or `value_in` must be given;
+  `value_in` must be a non-empty list, and takes precedence when both are declared. The value
+  compared is the one the control *shows*, so a
   `Select` with nothing stored counts as its `default`. Frappe's `eval:` string form is **not**
   supported. `field` must name another field of the same rule type — the declaration is rejected at
   load if it does not, because a field depending on a name nothing declares would be hidden on every
