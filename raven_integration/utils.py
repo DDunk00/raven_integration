@@ -3,13 +3,18 @@ from __future__ import annotations
 import frappe
 
 
-def raven_installed() -> bool:
-	"""True if the Raven app is active on this site.
+def get_active_apps_compat() -> list[str]:
+	"""Return the active-app list across supported Frappe versions.
 
-	Active, not merely installed: `bench disable-app raven` leaves the app in
-	get_installed_apps() with its tables intact, and frappe itself switches to
-	get_active_apps() to resolve hooks and to skip a disabled app's scheduled jobs.
-	Anything else has the sweep adding and removing member rows in an app the site
-	has turned off.
+	Frappe 17 exposes get_active_apps(). Frappe 15/16 do not expose that API,
+	so use the installed apps that are actually present on the current bench.
 	"""
-	return "raven" in frappe.get_active_apps()
+	get_active_apps = getattr(frappe, "get_active_apps", None)
+	if callable(get_active_apps):
+		return get_active_apps()
+	return frappe.get_installed_apps(_ensure_on_bench=True)
+
+
+def raven_installed() -> bool:
+	"""True if the Raven app is available on this site and bench."""
+	return "raven" in get_active_apps_compat()
